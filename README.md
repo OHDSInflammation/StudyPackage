@@ -1,9 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # StudyPackage
 
 Characterizing patients with inflammatory-related conditions
