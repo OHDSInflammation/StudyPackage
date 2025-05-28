@@ -12,7 +12,7 @@ cohorts using OHDSI community libraries from HADES and DARWIN.
 For both DARWIN and HADES packages we need to set up cohorts. This can
 be done in several ways:
 
-1.  Create the cohorts in ATLAS and then either manually pull the JSONs
+1.  Create the cohorts in ATLAS and then either manually pull the JSONs ('Cohort Defintions' > 'Export' > 'JSON')
     into the correct directory
 
     -   Directory location for targets: `inst/targets/cohorts`
