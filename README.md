@@ -14,7 +14,6 @@ be done in several ways:
 
 1.  Create the cohorts in ATLAS and then either manually pull the JSONs
     into the correct directory
-![Uploading image.png…]()
 
     -   Directory location for targets: `inst/targets/cohorts`
 
