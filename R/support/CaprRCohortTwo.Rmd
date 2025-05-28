@@ -1,0 +1,242 @@
+---
+title: "cohortsByCode (Capr)"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(Capr)
+library(Eunomia)
+library(tidyverse)
+```
+
+# Cohorts by code (Capr)
+
+cohort is reserved, we will use ch as variable for cohort
+same with cs for concpetset so we will use xyzConceptSet
+
+```{r}
+
+
+#simple cohort
+ch <- cohort(
+  entry = entry(
+    drugExposure(cs(descendants(937368),name='infliximab'))
+  ),
+  exit = exit(endStrategy = observationExit())
+)
+
+#as list
+chList <- ch |> toCirce() 
+
+
+#2 options below give same/similar output
+cohortJson <- ch |>
+  toCirce() |>
+  jsonlite::toJSON(pretty = TRUE, auto_unbox = TRUE) 
+
+cohortJson2 <- ch |>  toCirce() |>  jsonlite::toJSON(pretty = TRUE, auto_unbox = TRUE) |>  as.character()
+
+#looking at the structure
+str(chList,max.level = 1)
+str(chList,max.level = 2)
+
+#full listing
+chList
+
+
+#list as json fully
+cat(cohortJson)
+#same output
+#cat(cohortJson2)
+
+
+library(Capr)
+#better definition that uses first defining a conceptset
+#and then in the defintiion we in fact need to refer to it twice
+drugConceptSet<-cs(descendants(937368),name = "infliximab")   
+ch1<-cohort(
+  entry = entry(
+    drugExposure(drugConceptSet),primaryCriteriaLimit = "All",
+    qualifiedLimit = "All"
+  ),
+  exit = exit(drugExit(drugConceptSet,persistenceWindow = 30))
+)
+
+library(RJSONIO)
+
+#further exploring the error
+#RJSONIO::fromJSON(cohortJson2)
+library(CirceR)
+
+data(cohortDefinitionJson)
+#cat(cohortDefinitionJson)
+
+```
+
+# Executing it
+
+```{r}
+#run the cohort
+library(Eunomia)
+
+
+#giBleedCohortJson <- as.json(giBleedCohort)
+
+#gives error if we use cohortJson but if casted to character and we use cohortJson2 it works
+ sql <- CirceR::buildCohortQuery(
+   expression = CirceR::cohortExpressionFromJson(cohortJson2),
+   options = CirceR::createGenerateOptions(generateStats = FALSE)
+ )
+
+# #when using JSON from circeR it works and gives no error
+sql <- CirceR::buildCohortQuery(
+  expression = CirceR::cohortExpressionFromJson(cohortDefinitionJson),
+  options = CirceR::createGenerateOptions(generateStats = FALSE)
+)
+# cat(sql)
+
+# e1=CirceR::cohortExpressionFromJson(cohortDefinitionJson)
+# e1=CirceR::cohortExpressionFromJson(cohortJson2)
+# e1
+ 
+
+
+connectionDetails <- Eunomia::getEunomiaConnectionDetails()
+
+#giBleedCohortJson <- as.json(giBleedCohort)
+
+#empty table, we will be adding rows to it with each new cohort
+cohortsToCreate <- data.frame(
+  cohortId = integer(),
+  cohortName = character(),
+  sql = character()
+)
+#adding one cohort to it
+cohortsToCreate<- bind_rows(cohortsToCreate, data.frame(cohortId = 1,cohortName = "some name",sql = sql))
+cohortsToCreate %>% select(1,2)
+```
+
+
+```{r}
+#install.packages('CohortGenerator')
+library(CohortGenerator)
+
+#this creates a set of several tables 
+cohortTableNames <- CohortGenerator::getCohortTableNames(cohortTable = "my_cohort_table")
+#let's see which tables are created
+str(cohortTableNames)
+
+#now we create them in the database (not just the names)
+
+CohortGenerator::createCohortTables(
+  connectionDetails = connectionDetails,
+  cohortDatabaseSchema = "main",
+  cohortTableNames = cohortTableNames
+)
+
+
+# Generate the cohorts
+cohortsGenerated <- CohortGenerator::generateCohortSet(
+  connectionDetails = connectionDetails,
+  cdmDatabaseSchema = "main",
+  cohortDatabaseSchema = "main",
+  cohortTableNames = cohortTableNames,
+  cohortDefinitionSet = cohortsToCreate
+)
+
+# Get the cohort counts
+cohortCounts <- CohortGenerator::getCohortCounts(
+  connectionDetails = connectionDetails,
+  cohortDatabaseSchema = "main",
+  cohortTable = cohortTableNames$cohortTable
+)
+cohortCounts
+```
+```{r}
+library(Capr)
+
+GIBleed <- cs(descendants(192671), name = "GIbleed")
+GIBleed
+giBleedCohort <- cohort(
+  entry = entry(
+    conditionOccurrence(GIBleed),
+    observationWindow = continuousObservation(0L, 0L),
+    primaryCriteriaLimit = "First"
+  ),
+  exit = exit(
+    endStrategy = observationExit()
+  )
+)
+
+giBleedCohort
+
+
+
+#connectionDetails <- Eunomia::getEunomiaConnectionDetails()
+
+giBleedCohortJson <- giBleedCohort |>  toCirce() |>  jsonlite::toJSON(pretty = TRUE, auto_unbox = TRUE) |>  as.character()
+
+#giBleedCohortJson <- as.json(giBleedCohort) %>% as.character()
+
+sql <- CirceR::buildCohortQuery(
+  expression = CirceR::cohortExpressionFromJson(giBleedCohortJson),
+  options = CirceR::createGenerateOptions(generateStats = FALSE)
+)
+
+cohortsToCreate<- bind_rows(cohortsToCreate, tibble::tibble(cohortId = 2,cohortName = "GI Bleed",sql = sql))
+
+
+
+csVisit <- cs(descendants(9202), name = "outpatient visit")
+csVisit
+ch2 <- cohort(
+  entry = entry(
+    visit(csVisit)
+    ),
+  exit = exit(
+    endStrategy = observationExit()
+  )
+)
+
+cohortsToCreate<- bind_rows(cohortsToCreate, tibble::tibble(cohortId = 3,cohortName = "visit"
+  ,sql = CirceR::buildCohortQuery(
+    expression = CirceR::cohortExpressionFromJson(ch2 |>toCirce()|>jsonlite::toJSON(pretty = TRUE, auto_unbox = TRUE) |>  as.character()),
+  options = CirceR::createGenerateOptions(generateStats = FALSE)
+)))
+
+
+
+
+
+
+cohortsToCreate %>% select(1,2)
+
+cohortTableNames <- CohortGenerator::getCohortTableNames(cohortTable = "my_cohort_table")
+CohortGenerator::createCohortTables(connectionDetails = connectionDetails,cohortDatabaseSchema = "main",cohortTableNames= cohortTableNames)
+
+# Generate the cohorts
+cohortsGenerated <- CohortGenerator::generateCohortSet(
+  connectionDetails = connectionDetails,
+  cdmDatabaseSchema = "main",
+  cohortDatabaseSchema = "main",
+  cohortTableNames = cohortTableNames,
+  cohortDefinitionSet = cohortsToCreate
+)
+
+# Get the cohort counts
+cohortCounts <- CohortGenerator::getCohortCounts(
+  connectionDetails = connectionDetails,
+  cohortDatabaseSchema = "main",
+  cohortTable = cohortTableNames$cohortTable
+)
+
+cohortCounts
+
+
+#more examples
+
+```
+
+
