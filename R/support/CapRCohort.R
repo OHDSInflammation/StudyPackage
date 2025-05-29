@@ -19,7 +19,7 @@ ch_entry = entry(
 
 ch <- cohort(
   entry = entry(
-    conditionOccurrence(asthma_json_codes,condStart = c("2024-01-01", "2024-01-01")),
+    conditionOccurrence(asthma_json_codes,condStart = "2024-01-01"),
     #startDate("2024-01-01"),
     observationWindow = continuousObservation(180,1), 
     primaryCriteriaLimit = "First",
