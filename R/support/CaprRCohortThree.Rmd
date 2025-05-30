@@ -1,0 +1,165 @@
+---
+title: "cohortsByCode (Capr)"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(Capr)
+library(tidyverse)
+library(Capr)
+library(RJSONIO)
+library(CirceR)
+library(CohortGenerator)
+```
+
+
+# Set up connection details
+
+```{r connection set up}
+
+connectionDetails = DatabaseConnector::createConnectionDetails(
+    dbms   =   "snowflake",
+    #server =   server,
+    connectionString = paste0(Sys.getenv("OMOP_PA_SERVER"), "&db=PA_USA_AMBEMR&schema=STUDY_REFERENCE"),
+    user   =   Sys.getenv("SNOWFLAKE_USER"),
+    password = "",
+    port     = "443",
+    pathToDriver = "~/drivers"
+  )
+
+cohortDatabaseSchema <- "PA_USA_AMBEMR.STUDY_REFERENCE" 
+cdmDatabaseSchema  <- 'EXT_OMOPV5_USA_AMBEMR.FULL_LATEST_OMOP_V5'
+```
+
+# Cohorts by code (Capr)
+
+cohort is reserved, we will use ch as variable for cohort
+same with cs for concpetset so we will use xyzConceptSet
+
+```{r}
+# create a simple cohort
+
+## infliximab cohort 
+drugConceptSet<-cs(descendants(937368),name = "infliximab") 
+drugCohort <- cohort(
+  entry = entry(
+    drugExposure(drugConceptSet)
+  ),
+  exit = exit(endStrategy = observationExit())
+)
+
+## outpatient cohort
+csVisit <- cs(descendants(9202), name = "outpatient visit")
+inpatientCohort <- cohort(
+  entry = entry(
+    visit(csVisit)
+    ),
+  exit = exit(
+    endStrategy = observationExit()
+  )
+)
+
+GIBleed <- cs(descendants(192671), name = "GIbleed")
+giBleedCohort <- cohort(
+  entry = entry(
+    conditionOccurrence(GIBleed),
+    observationWindow = continuousObservation(0L, 0L),
+    primaryCriteriaLimit = "First"
+  ),
+  exit = exit(
+    endStrategy = observationExit()
+  )
+)
+
+cohort_list <- list("drugCohort" = drugCohort, "inpatientCohort" = inpatientCohort, "giBleedCohort" = giBleedCohort)
+```
+
+# Create cohort JSONS
+
+```{r}
+cohortJson_list <- lapply(cohort_list, function(ch) {
+  
+# get cohort json
+cohortJson <- ch |>  
+  toCirce() |> 
+  jsonlite::toJSON(pretty = TRUE, auto_unbox = TRUE) |> 
+  as.character()
+  
+  # Return a list containing all data frames
+  return(cohortJson)
+  
+
+})
+
+# Combine all the individual data frames across cohorts:
+jsons <- do.call(rbind, cohortJson_list) 
+```
+
+# Create cohort SQL
+
+```{r}
+sql_list <- lapply(cohortJson_list, function(cohortJson) {
+  
+ sql <- CirceR::buildCohortQuery(
+   expression = CirceR::cohortExpressionFromJson(cohortJson),
+   options = CirceR::createGenerateOptions(generateStats = FALSE)
+ )
+  
+})
+
+# Combine all the individual data frames across cohorts:
+sqls <- do.call(rbind, sql_list) 
+```
+
+
+```{r}
+# create a cohorts to create dataframe 
+cohortsToCreate <- data.frame(
+  cohortId = 1:length(cohort_list),
+  cohortName = names(cohort_list),
+  sql = unlist(sqls),
+  json = unlist(jsons)
+)
+
+```
+
+# Generate cohort tables on the sql instance
+
+```{r}
+# this creates a set of several tables 
+cohortTableNames <- CohortGenerator::getCohortTableNames(cohortTable = "capR_cohorts")
+# let's see which tables are created
+str(cohortTableNames)
+
+#now we create them in the database (not just the names)
+CohortGenerator::createCohortTables(
+  connectionDetails = connectionDetails,
+  cohortDatabaseSchema = cohortDatabaseSchema,
+  cohortTableNames = cohortTableNames
+)
+
+# Generate the cohorts
+cohortsGenerated <- CohortGenerator::generateCohortSet(
+  connectionDetails = connectionDetails,
+  cdmDatabaseSchema = cdmDatabaseSchema,
+  cohortDatabaseSchema = cohortDatabaseSchema,
+  cohortTableNames = cohortTableNames,
+  cohortDefinitionSet = cohortsToCreate
+)
+```
+
+# Get cohort counts 
+
+```{r}
+# Get the cohort counts
+cohortCounts <- CohortGenerator::getCohortCounts(
+  connectionDetails = connectionDetails,
+  cohortDatabaseSchema = cohortDatabaseSchema,
+  cohortTable = cohortTableNames$cohortTable
+)
+
+cohortCounts
+```
+
